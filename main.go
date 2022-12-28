@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -94,10 +93,6 @@ func endStream(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	flag.StringVar(&key, "key", "", "a key to prove you are a waveguide server and can register streams")
-
-	flag.Parse()
-
 	key := os.Getenv("RTR_KEY")
 	if key == "" {
 		panic("A RTR_KEY is required to start the RTRouter")
