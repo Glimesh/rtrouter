@@ -7,10 +7,12 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMain(m *testing.M) {
 	streams = make(map[int]string)
+	heartbeats = make(map[int]time.Time)
 	key = "secretkey"
 
 	code := m.Run()
@@ -96,6 +98,18 @@ func TestEndStream(t *testing.T) {
 
 	endpoint, ok := streams[123456]
 	if ok || endpoint == "http://foobar/123456" {
+		t.Error("stream was not removed from state successfully")
+	}
+}
+
+func TestHeartbeatTimeout(t *testing.T) {
+	streams[4321] = "http://foobar/4321"
+	heartbeats[4321] = time.Now().Add(time.Second * -10)
+
+	checkForDeadChannels(time.Duration(time.Second * 5))
+
+	_, ok := streams[4321]
+	if ok {
 		t.Error("stream was not removed from state successfully")
 	}
 }

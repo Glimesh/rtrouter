@@ -5,18 +5,20 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path"
 	"strconv"
-	"strings"
+	"time"
 )
 
 var (
 	// Simple map of channel_id => redirect URL
-	streams map[int]string
-	key     string
+	streams    map[int]string
+	heartbeats map[int]time.Time
+	key        string
 )
 
 func whepEndpoint(w http.ResponseWriter, r *http.Request) {
-	strChannelID := strings.TrimPrefix(r.URL.Path, "/v1/whep/endpoint/")
+	strChannelID := path.Base(r.URL.Path)
 
 	channelID, err := strconv.Atoi(strChannelID)
 	if err != nil {
@@ -59,6 +61,8 @@ func startStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	streams[channelID] = endpoint
+	heartbeats[channelID] = time.Now()
+
 	w.WriteHeader(http.StatusAccepted)
 	w.Header().Set("Content-Type", "plain/text")
 	w.Write([]byte("Accepted"))
@@ -86,6 +90,41 @@ func endStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	delete(streams, channel_id)
+	delete(heartbeats, channel_id)
+
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "plain/text")
+	w.Write([]byte("OK"))
+}
+
+func heartbeat(w http.ResponseWriter, r *http.Request) {
+	authKey := r.Header.Get("Authorization")
+	if authKey != key {
+		errUnauthorized(w, r)
+		return
+	}
+
+	r.ParseForm()
+	strChannelId := r.Form.Get("channel_id")
+	if strChannelId == "" {
+		fmt.Printf("channel_id=s=%s", strChannelId)
+		errWrongParams(w, r)
+		return
+	}
+	channel_id, err := strconv.Atoi(strChannelId)
+	if err != nil {
+		fmt.Printf("channel_id=d=%d", channel_id)
+		errWrongParams(w, r)
+		return
+	}
+
+	_, ok := heartbeats[channel_id]
+	if !ok {
+		errNotFound(w, r)
+		return
+	}
+
+	heartbeats[channel_id] = time.Now()
 
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "plain/text")
@@ -93,7 +132,10 @@ func endStream(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	key := os.Getenv("RTR_KEY")
+	done := make(chan struct{})
+	defer close(done)
+
+	key = os.Getenv("RTR_KEY")
 	if key == "" {
 		panic("A RTR_KEY is required to start the RTRouter")
 	}
@@ -103,13 +145,47 @@ func main() {
 	}
 
 	streams = make(map[int]string)
+	heartbeats = make(map[int]time.Time)
 
-	http.HandleFunc("/v1/whep/endpoint", whepEndpoint)
-	http.HandleFunc("/v1/whip/endpoint", whipEndpoint)
+	go deadChannelChecker(done, time.Duration(time.Second*60))
+
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "plain/text")
+		w.Write([]byte("https://github.com/Glimesh/rtrouter"))
+	})
+	http.HandleFunc("/v1/whep/endpoint/", whepEndpoint)
+	http.HandleFunc("/v1/whip/endpoint/", whipEndpoint)
 	http.HandleFunc("/v1/state/start_stream", startStream)
 	http.HandleFunc("/v1/state/end_stream", endStream)
+	http.HandleFunc("/v1/state/heartbeat", heartbeat)
 
 	log.Fatal(http.ListenAndServe(":"+httpPort, logRequest(http.DefaultServeMux)))
+}
+
+func deadChannelChecker(done <-chan struct{}, expiry time.Duration) {
+	ticker := time.NewTicker(time.Second * expiry)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			checkForDeadChannels(expiry)
+		}
+	}
+}
+func checkForDeadChannels(expiry time.Duration) {
+	now := time.Now()
+
+	for channelID, lastTime := range heartbeats {
+		if now.Sub(lastTime).Seconds() > expiry.Seconds() {
+			delete(streams, channelID)
+			delete(heartbeats, channelID)
+			log.Printf("Heartbeat found dead channel %d last update %v", channelID, lastTime)
+		}
+	}
 }
 
 func logRequest(handler http.Handler) http.Handler {
