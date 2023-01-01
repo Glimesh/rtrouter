@@ -1,7 +1,7 @@
 # fly.toml file generated for rtrouter on 2022-12-28T16:47:05-05:00
 
 app = "rtrouter"
-kill_signal = "SIGINT"
+kill_signal = "SIGKILL"
 kill_timeout = 5
 processes = []
 

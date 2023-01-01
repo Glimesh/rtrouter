@@ -6,6 +6,13 @@ COPY go.mod ./
 RUN go mod download && go mod verify
 
 COPY . .
-RUN go build -v -o /usr/local/bin/rtrouter ./...
+RUN CGO_ENABLED=0 go build -o /rtrouter
 
-ENTRYPOINT ["/usr/local/bin/rtrouter"]
+FROM scratch AS runtime
+
+WORKDIR /
+EXPOSE 8080
+
+COPY --from=build /rtrouter /rtrouter
+
+ENTRYPOINT ["/rtrouter"]

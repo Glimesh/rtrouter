@@ -132,9 +132,6 @@ func heartbeat(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	done := make(chan struct{})
-	defer close(done)
-
 	key = os.Getenv("RTR_KEY")
 	if key == "" {
 		panic("A RTR_KEY is required to start the RTRouter")
@@ -147,7 +144,7 @@ func main() {
 	streams = make(map[int]string)
 	heartbeats = make(map[int]time.Time)
 
-	go deadChannelChecker(done, time.Duration(time.Second*60))
+	go deadChannelChecker(time.Second * 60)
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -163,19 +160,16 @@ func main() {
 	log.Fatal(http.ListenAndServe(":"+httpPort, logRequest(http.DefaultServeMux)))
 }
 
-func deadChannelChecker(done <-chan struct{}, expiry time.Duration) {
-	ticker := time.NewTicker(time.Second * expiry)
-	defer ticker.Stop()
+func deadChannelChecker(expiry time.Duration) {
+	log.Println("Starting checker")
 
-	for {
-		select {
-		case <-done:
-			return
-		case <-ticker.C:
-			checkForDeadChannels(expiry)
-		}
+	ticker := time.NewTicker(expiry)
+	for ; true; <-ticker.C {
+		log.Println("Checking for stale streams")
+		checkForDeadChannels(expiry)
 	}
 }
+
 func checkForDeadChannels(expiry time.Duration) {
 	now := time.Now()
 
