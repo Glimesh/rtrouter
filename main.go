@@ -20,6 +20,8 @@ var (
 func whepEndpoint(w http.ResponseWriter, r *http.Request) {
 	strChannelID := path.Base(r.URL.Path)
 
+	w.Header().Add("Access-Control-Allow-Origin", "*")
+
 	channelID, err := strconv.Atoi(strChannelID)
 	if err != nil {
 		errWrongParams(w, r)
